@@ -1,0 +1,22 @@
+{
+    "targets": [
+        {
+            "name": "player",
+            "type": "executable",
+            "cc": "gcc",
+            "cxx": "g++",
+            "cflags": "-O2 -W -Wall",
+            "cxxflags": "-O2 -W -Wall",
+            "ar": "ar",
+            "arflags": "rcs",
+            "libs": "-lSDL2 -lavformat -lavcodec -lavutil -lswscale",
+            "install": "",
+            "cmd": "",
+            "sources": [
+                "main.c",
+                "decoder.c"
+            ],
+            "depends": []
+        }
+    ]
+}
