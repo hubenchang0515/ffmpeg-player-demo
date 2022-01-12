@@ -9,14 +9,15 @@
 #include <libavutil/imgutils.h>     // libavutil-dev    : Audio-Video Utilities - 一些实用函数
 #include <libswscale/swscale.h>     // libswscale-dev   : Software Scale - 软件缩放算法
 
+#include "queue.h"
 #include "decoder.h"
 
 /* 视频通常使用 16:9 的分辨率 */
 static const int WIDTH = 640;
-static const int HEIGHT = 360; 
+static const int HEIGHT = 360;
 
 int main(int argc, char* argv[])
-{
+{   
     /* 参数检查 */
     if (argc != 2)
     {
@@ -35,19 +36,21 @@ int main(int argc, char* argv[])
         fprintf(stderr, "SDL_CreateWindowAndRenderer failed\n");
         return EXIT_FAILURE;
     }
+
+    // 创建纹理
+    SDL_Texture* texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_IYUV, SDL_TEXTUREACCESS_TARGET|SDL_TEXTUREACCESS_STREAMING, WIDTH, HEIGHT);
     
+    // 创建跨线程交互数据
+    DecoderData* data = createDecoderData(argv[1], WIDTH, HEIGHT);
 
-    // 创建纹理和互斥量等
-    DecoderData data;
-    data.file = argv[1];
-    data.width = WIDTH;
-    data.height = HEIGHT;
-    data.texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_IYUV, SDL_TEXTUREACCESS_TARGET|SDL_TEXTUREACCESS_STREAMING, WIDTH, HEIGHT);
-    data.renderMutex = SDL_CreateMutex();
-    data.exitMutex = 0;
-    data.exitMutex = SDL_CreateMutex();
+    /* 打开音频设备 */
+    // SDL_AudioSpec audioSpec;
+    // audioSpec.callback = getAudioData;
+    // audioSpec.userdata = data;
+    // SDL_OpenAudio(&audioSpec, NULL);
 
-    SDL_Thread* thread = SDL_CreateThread(decoder, "decoder", &data);
+    /* 创建线程进行解码 */
+    SDL_Thread* thread = SDL_CreateThread(decoder, "decoder", data);
 
     SDL_Event event;
     while (1)
@@ -55,31 +58,31 @@ int main(int argc, char* argv[])
         // 收到退出事件，退出
         if (SDL_PollEvent(&event) > 0 && event.type == SDL_QUIT)
         {
-            SDL_LockMutex(data.exitMutex);
-            data.exit = 1;
-            SDL_UnlockMutex(data.exitMutex);
+            setExit(data, 1);
             break;
         }
 
         // 播放完毕，退出
-        SDL_LockMutex(data.exitMutex);
-        int exit = data.exit;
-        SDL_UnlockMutex(data.exitMutex);
-        if (exit)
-        {
+        if (isExit(data))
             break;
-        }
 
-        SDL_LockMutex(data.renderMutex);
-        SDL_RenderCopy(renderer, data.texture, NULL, NULL);
-        SDL_RenderPresent(renderer);
-        SDL_UnlockMutex(data.renderMutex);
+        void* videoBuffer = popVideo(data);
+        if (videoBuffer != NULL)
+        {
+            SDL_UpdateTexture(texture, NULL, videoBuffer, WIDTH);
+            SDL_RenderCopy(renderer, texture, NULL, NULL);
+            SDL_RenderPresent(renderer);
+            free(videoBuffer);
+        }
     }
 
     SDL_WaitThread(thread, NULL);
-    
-    SDL_DestroyTexture(data.texture);
+
+    deleteDecoderData(data);
+    SDL_DestroyTexture(texture);
     SDL_DestroyRenderer(renderer);
     SDL_DestroyWindow(window);
     SDL_Quit();
+
+    return EXIT_SUCCESS;
 }
