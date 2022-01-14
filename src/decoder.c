@@ -102,7 +102,7 @@ void resetDecoderData(DecoderData* data)
 }
 
 // 创建
-DecoderData* createDecoderData(const char* file)
+DecoderData* createDecoder()
 {
     DecoderData* data = malloc(sizeof(DecoderData));
     if (data == NULL)
@@ -112,14 +112,11 @@ DecoderData* createDecoderData(const char* file)
     }
 
     resetDecoderData(data);
-    data->file = file;
-
-    
     return data;
 }
 
 // 删除
-void deleteDecoderData(DecoderData* data)
+void deleteDecoder(DecoderData* data)
 {
     if (data == NULL)
         return;
@@ -185,7 +182,7 @@ void deleteDecoderData(DecoderData* data)
 }
 
 // 设置视频解码结束
-void setEnd(DecoderData* data, bool n)
+void decoderSetEnd(DecoderData* data, bool n)
 {
     SDL_LockMutex(data->endMutex);
     data->end = n;
@@ -193,7 +190,7 @@ void setEnd(DecoderData* data, bool n)
 }
 
 // 是否视频解码结束
-int isEnd(const DecoderData* data)
+int decoderIsEnd(const DecoderData* data)
 {
     SDL_LockMutex(data->endMutex);
     int n = data->end;
@@ -203,7 +200,7 @@ int isEnd(const DecoderData* data)
 
 
 // 压入一帧视频数据
-void pushVideo(DecoderData* data, void* videoBuffer)
+void decoderPushVideo(DecoderData* data, void* videoBuffer)
 {
     SDL_LockMutex(data->videoMutex);
     pushQueue(data->videoQueue, videoBuffer);
@@ -211,7 +208,7 @@ void pushVideo(DecoderData* data, void* videoBuffer)
 }
 
 // 弹出一帧视频数据
-void* popVideo(DecoderData* data)
+void* decoderPopVideo(DecoderData* data)
 {
     SDL_LockMutex(data->videoMutex);
     void* buffer = popQueue(data->videoQueue);
@@ -221,7 +218,7 @@ void* popVideo(DecoderData* data)
 }
 
 // 压入一帧音频数据
-void pushAudio(DecoderData* data, void* audioBuffer)
+void decoderPushAudio(DecoderData* data, void* audioBuffer)
 {
     SDL_LockMutex(data->videoMutex);
     pushQueue(data->audioQueue, audioBuffer);
@@ -229,7 +226,7 @@ void pushAudio(DecoderData* data, void* audioBuffer)
 }
 
 // 弹出一帧音频数据
-void* popAudio(DecoderData* data)
+void* decoderPopAudio(DecoderData* data)
 {
     SDL_LockMutex(data->videoMutex);
     void* buffer = popQueue(data->audioQueue);
@@ -239,9 +236,10 @@ void* popAudio(DecoderData* data)
 }
 
 // 解封装: 从 MP4、AVI 等封装格式中提取出 H.264、pcm 等音视频编码数据
-bool unpack(DecoderData* data)
+bool decoderUnpack(DecoderData* data, const char* file)
 {
     /* 打开文件 */
+    data->file = file;
     if (avformat_open_input(&(data->formatContext), data->file, NULL, NULL) != 0)
     {
         fprintf(stderr, "avformat_open_input failed: %s\n", data->file);
@@ -285,7 +283,7 @@ bool unpack(DecoderData* data)
 }
 
 // 初始化视频解码器
-bool initVideoCodec(DecoderData* data)
+bool decoderInitVideoCodec(DecoderData* data)
 {
     data->videoStream = data->formatContext->streams[data->videoIndex];
     data->videoParams = data->videoStream->codecpar;
@@ -320,7 +318,7 @@ bool initVideoCodec(DecoderData* data)
 }
 
 // 初始化音频解码器
-bool initAudioCodec(DecoderData* data)
+bool decoderInitAudioCodec(DecoderData* data)
 {
     data->audioStream = data->formatContext->streams[data->audioIndex];
     data->audioParams = data->audioStream->codecpar;
@@ -355,7 +353,7 @@ bool initAudioCodec(DecoderData* data)
 }
 
 // 初始化软件缩放算法
-bool initSwScale(DecoderData* data, int width, int height, enum AVPixelFormat fmt)
+bool decoderInitSwScale(DecoderData* data, int width, int height, enum AVPixelFormat fmt)
 {
     data->width = width;
     data->height = height;
@@ -406,7 +404,7 @@ bool initSwScale(DecoderData* data, int width, int height, enum AVPixelFormat fm
 }
 
 // 初始化软件重采样算法
-bool initSwResample(DecoderData* data, int64_t layout, enum AVSampleFormat fmt, int rate)
+bool decoderInitSwResample(DecoderData* data, int64_t layout, enum AVSampleFormat fmt, int rate)
 {
     data->layout = layout;
     data->sampleFormat = fmt;
@@ -455,18 +453,18 @@ bool initSwResample(DecoderData* data, int64_t layout, enum AVSampleFormat fmt, 
 }
 
 // 重采样后的一个通道的采样数
-int getSamples(DecoderData* data)
+int decoderSamples(DecoderData* data)
 {
     return data->samples;
 }
 
 // 解码
-int decode(DecoderData* data)
+int decoderRun(DecoderData* data)
 {
     AVPacket packet;
     while (1)
     {
-        if (isEnd(data))
+        if (decoderIsEnd(data))
             break;
 
         if (av_read_frame(data->formatContext, &packet) < 0)
@@ -520,7 +518,7 @@ int decode(DecoderData* data)
             }
 
             // 将最终显示的视频数据压入队列
-            pushVideo(data, data->displayVideoBuffer);
+            decoderPushVideo(data, data->displayVideoBuffer);
         } while (0);
         
         // 解码音频
@@ -569,7 +567,7 @@ int decode(DecoderData* data)
                     
                 break;
             } 
-            pushAudio(data, data->displayAudioBuffer);
+            decoderPushAudio(data, data->displayAudioBuffer);
 
         } while (0);
 
@@ -577,6 +575,6 @@ int decode(DecoderData* data)
         av_packet_unref(&packet);
     }
     
-    setEnd(data, true);
+    decoderSetEnd(data, true);
     return EXIT_SUCCESS;
 }

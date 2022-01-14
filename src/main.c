@@ -53,12 +53,12 @@ int main(int argc, char* argv[])
     SDL_Texture* texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_IYUV, SDL_TEXTUREACCESS_TARGET|SDL_TEXTUREACCESS_STREAMING, WIDTH, HEIGHT);
     
     // 创建跨线程交互数据
-    DecoderData* data = createDecoderData(argv[1]);
-    unpack(data);
-    initVideoCodec(data);
-    initSwScale(data, 640, 360, AV_PIX_FMT_YUV420P);
-    initAudioCodec(data);
-    initSwResample(data, AV_CH_LAYOUT_STEREO, AV_SAMPLE_FMT_FLT, 44100);
+    DecoderData* data = createDecoder();
+    decoderUnpack(data, argv[1]);
+    decoderInitVideoCodec(data);
+    decoderInitSwScale(data, 640, 360, AV_PIX_FMT_YUV420P);
+    decoderInitAudioCodec(data);
+    decoderInitSwResample(data, AV_CH_LAYOUT_STEREO, AV_SAMPLE_FMT_FLT, 44100);
 
     AudioUserData audio;
     audio.decoder = data;
@@ -71,7 +71,7 @@ int main(int argc, char* argv[])
     audioSpec.format = AUDIO_F32;       // 32bit 小端浮点数
     audioSpec.freq = 44100;             // 44100Hz
     audioSpec.silence = 0;
-    audioSpec.samples = getSamples(data);
+    audioSpec.samples = decoderSamples(data);
 
     audioSpec.userdata = &audio;
     audioSpec.callback = getAudioData;
@@ -89,12 +89,12 @@ int main(int argc, char* argv[])
         // 收到退出事件，退出
         if (SDL_PollEvent(&event) > 0 && event.type == SDL_QUIT)
         {
-            setEnd(data, true);
+            decoderSetEnd(data, true);
             audio.end = true;
             break;
         }
 
-        void* videoBuffer = popVideo(data);
+        void* videoBuffer = decoderPopVideo(data);
         if (videoBuffer != NULL)
         {
             SDL_UpdateTexture(texture, NULL, videoBuffer, WIDTH);
@@ -102,7 +102,7 @@ int main(int argc, char* argv[])
             SDL_RenderPresent(renderer);
             free(videoBuffer);
         }
-        else if(isEnd(data) && audio.end)
+        else if(decoderIsEnd(data) && audio.end)
         {
             break;
         }
@@ -111,7 +111,7 @@ int main(int argc, char* argv[])
     SDL_WaitThread(thread, NULL);       // 等待解码线程退出
     SDL_PauseAudio(1);
     
-    deleteDecoderData(data);
+    deleteDecoder(data);
     SDL_DestroyTexture(texture);
     SDL_DestroyRenderer(renderer);
     SDL_DestroyWindow(window);
@@ -123,20 +123,20 @@ int main(int argc, char* argv[])
 int threadDecode(void* userdata)
 {
     DecoderData* data = (DecoderData*)(userdata);
-    return decode(data);
+    return decoderRun(data);
 }
 
 void getAudioData(void *userdata, Uint8* stream, int len)
 {
     AudioUserData* data = (AudioUserData*)(userdata);
     DecoderData* decoder = data->decoder;
-    void* audioBuffer = popAudio(decoder);
+    void* audioBuffer = decoderPopAudio(decoder);
     if (audioBuffer != NULL)
     {
         SDL_memcpy(stream, audioBuffer, len);
         av_free(audioBuffer);
     }
-    else if (isEnd(decoder))
+    else if (decoderIsEnd(decoder))
     {
         data->end = true;
     }
