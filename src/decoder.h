@@ -6,7 +6,7 @@
 typedef struct DecoderData DecoderData;
 
 // 初始化
-DecoderData* createDecoderData(const char* file, int width, int height);
+DecoderData* createDecoderData(const char* file);
 
 // 删除 
 void deleteDecoderData(DecoderData* data);
@@ -28,6 +28,21 @@ void pushAudio(DecoderData* data, void* audioBuffer);
 
 // 弹出一帧音频数据
 void* popAudio(DecoderData* data);
+
+// 解封装: 从 MP4、AVI 等封装格式中提取出 H.264、pcm 等音视频编码数据
+bool unpack(DecoderData* data);
+
+// 初始化视频解码器
+bool initVideoCodec(DecoderData* data);
+
+// 初始化音频解码器
+bool initAudioCodec(DecoderData* data);
+
+// 初始化软件缩放算法
+bool initSwScale(DecoderData* data, int width, int height, enum AVPixelFormat fmt);
+
+// 初始化软件重采样算法
+bool initSwResample(DecoderData* data, int64_t layout, enum AVSampleFormat fmt, int rate);
 
 // 解码器线程
 int decoder(void* userdata);

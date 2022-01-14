@@ -15,15 +15,12 @@
 typedef struct DecoderData
 {
     const char* file;
-    
-    int width;
-    int height;
-    
-    SDL_mutex* videoMutex;
-    Queue* videoQueue;
 
     SDL_mutex* exitMutex;
     int exit;
+
+    SDL_mutex* videoMutex;
+    Queue* videoQueue;
 
     SDL_mutex* audioMutex;
     Queue* audioQueue;
@@ -37,23 +34,74 @@ typedef struct DecoderData
     AVCodec* videoCodec;            // 视频解码器
     AVCodecContext* videoContext;   // 视频解码器上下文
     AVFrame* decodedVideoFrame;     // 解码后的视频帧
+    int width;                      // 缩放后的宽度
+    int height;                     // 缩放后的高度
+    enum AVPixelFormat pixFormat;   // 缩放后的视频像素格式
     int videoBufferSize;            // 缩放后的视频缓冲区大小
     void* displayVideoBuffer;       // 缩放后的视频缓冲区
     AVFrame* displayVideoFrame;     // 缩放后的视频帧
     struct SwsContext* swsContext;  // 缩放算法上下文
 
-    AVStream* audioStream;          // 音频流
-    AVCodecParameters* audioParams; // 音频流参数
-    AVCodec* audioCodec;            // 音频解码器
-    AVCodecContext* audioContext;   // 音频解码器上下文
-    AVFrame* decodedAudioFrame;     // 解码后的音频帧
-    int audioBufferSize;            // 重采样后音频缓冲区大小
-    uint8_t* displayAudioBuffer;    // 重采样后音频缓冲区
-    SwrContext* swrContext;         // 重采样上下文
+    AVStream* audioStream;              // 音频流
+    AVCodecParameters* audioParams;     // 音频流参数
+    AVCodec* audioCodec;                // 音频解码器
+    AVCodecContext* audioContext;       // 音频解码器上下文
+    AVFrame* decodedAudioFrame;         // 解码后的音频帧
+    int64_t layout;                     // 重采样后的声道布局
+    enum AVSampleFormat sampleFormat;   // 重采样后的音频采样格式
+    int rate;                           // 重采样后的采样频率
+    int audioBufferSize;                // 重采样后的音频缓冲区大小
+    uint8_t* displayAudioBuffer;        // 重采样后的音频缓冲区
+    AVFrame* displayAudioFrame;         // 重采样后的音频帧
+    SwrContext* swrContext;             // 重采样上下文
 }DecoderData;
 
-// 初始化
-DecoderData* createDecoderData(const char* file, int width, int height)
+void resetDecoderData(DecoderData* data)
+{
+    data->file = NULL;
+    data->exitMutex = NULL;
+    data->exit = 0;
+
+    data->videoMutex = NULL;
+    data->videoQueue = NULL;
+
+    data->audioMutex = NULL;
+    data->audioQueue = NULL;
+
+    data->formatContext = NULL;
+    data->videoIndex = -1;
+    data->audioIndex = -1;
+    
+    data->videoStream = NULL;
+    data->videoParams = NULL;
+    data->videoCodec = NULL;
+    data->videoContext = NULL;
+    data->decodedVideoFrame = NULL;
+    data->width = 0;
+    data->height = 0;
+    data->pixFormat = AV_PIX_FMT_NONE;
+    data->videoBufferSize = 0;
+    data->displayVideoBuffer = NULL;
+    data->displayVideoFrame = NULL;
+    data->swsContext = NULL;
+
+    data->audioStream = NULL;
+    data->audioParams = NULL;
+    data->audioCodec = NULL;
+    data->audioContext = NULL;
+    data->decodedAudioFrame = NULL;
+    data->layout = AV_CH_LAYOUT_NATIVE;
+    data->sampleFormat = AV_SAMPLE_FMT_NONE;
+    data->rate = 0;
+    data->audioBufferSize = 0;
+    data->audioBufferSize = 0;
+    data->displayAudioBuffer = NULL;
+    data->displayAudioFrame = NULL;
+    data->swrContext = NULL;
+}
+
+// 创建
+DecoderData* createDecoderData(const char* file)
 {
     DecoderData* data = malloc(sizeof(DecoderData));
     if (data == NULL)
@@ -62,29 +110,78 @@ DecoderData* createDecoderData(const char* file, int width, int height)
         return NULL;
     }
 
+    resetDecoderData(data);
     data->file = file;
-    data->width = width;
-    data->height = height;
-
-    data->videoMutex = SDL_CreateMutex();
-    data->videoQueue = NULL;
-
     data->exitMutex = SDL_CreateMutex();
     data->exit = 0;
 
-    data->audioMutex = SDL_CreateMutex();
-    data->audioQueue = NULL;
-
+    
     return data;
 }
 
 // 删除
 void deleteDecoderData(DecoderData* data)
 {
-    deleteQueue(data->videoQueue);
-    deleteQueue(data->audioQueue);
-    SDL_DestroyMutex(data->videoMutex);
-    SDL_DestroyMutex(data->audioMutex);
+    if (data == NULL)
+        return;
+
+    if (data->swrContext != NULL)
+        swr_free(&(data->swrContext));
+
+    if (data->displayAudioFrame != NULL)
+        av_frame_free(&(data->displayAudioFrame));
+
+    if (data->displayAudioBuffer != NULL)
+        av_free(data->displayAudioBuffer);
+
+    if (data->decodedAudioFrame != NULL)
+        av_frame_free(&(data->decodedAudioFrame));
+
+    if (data->audioContext != NULL)
+    {
+        avcodec_close(data->audioContext);
+        avcodec_free_context(&(data->audioContext));
+    }
+
+    if (data->swsContext != NULL)
+        sws_freeContext(data->swsContext);
+
+    if (data->displayVideoFrame != NULL)
+        av_frame_free(&(data->displayVideoFrame));
+
+    if (data->displayVideoBuffer != NULL)
+        av_free(data->displayVideoBuffer);
+
+    if (data->decodedVideoFrame != NULL)
+        av_frame_free(&(data->decodedVideoFrame));
+
+    if (data->videoContext != NULL)
+    {
+        avcodec_close(data->videoContext);
+        avcodec_free_context(&(data->videoContext));
+    }
+
+    if (data->formatContext != NULL)
+    {
+        avformat_close_input(&(data->formatContext));
+        avformat_free_context(data->formatContext);
+    }
+
+    if (data->audioQueue != NULL)
+        deleteQueue(data->audioQueue);
+
+    if (data->audioMutex != NULL)
+        SDL_DestroyMutex(data->audioMutex);
+
+    if (data->videoQueue != NULL)
+        deleteQueue(data->videoQueue);
+
+    if (data->videoMutex != NULL)
+        SDL_DestroyMutex(data->videoMutex);
+
+    if (data->exitMutex != NULL)
+        SDL_DestroyMutex(data->exitMutex);
+    
     free(data);
 }
 
@@ -141,170 +238,240 @@ void* popAudio(DecoderData* data)
     return buffer;
 }
 
-
-
-// 解码线程
-int decoder(void* userdata)
+// 解封装: 从 MP4、AVI 等封装格式中提取出 H.264、pcm 等音视频编码数据
+bool unpack(DecoderData* data)
 {
-    DecoderData* data = userdata;
     /* 打开文件 */
-    AVFormatContext* formatContext = avformat_alloc_context();
-    if (avformat_open_input(&formatContext, data->file, NULL, NULL) != 0)
+    if (avformat_open_input(&(data->formatContext), data->file, NULL, NULL) != 0)
     {
         fprintf(stderr, "avformat_open_input failed: %s\n", data->file);
-        avformat_free_context(formatContext);
-        return EXIT_FAILURE;
+        avformat_free_context(data->formatContext);
+        data->formatContext = NULL;
+        return false;
     }
 
-    /* 解封装: 从 MP4、AVI 等封装格式中提取出 H.264、pcm 等音视频编码数据 */
-    if (avformat_find_stream_info(formatContext, NULL) != 0)
+    /* 读取流信息 */
+    if (avformat_find_stream_info((data->formatContext), NULL) != 0)
     {
         fprintf(stderr, "avformat_find_stream_info failed\n");
-        avformat_close_input(&formatContext);
-        avformat_free_context(formatContext);
-        return EXIT_FAILURE;
+        avformat_close_input(&(data->formatContext));
+        avformat_free_context(data->formatContext);
+        data->formatContext = NULL;
+        return false;
     }
 
-    // 遍历 stream 查找音视频流的数据
-    int videoIndex = -1;
-    int audioIndex = -1;
-    for (unsigned int i = 0; i < formatContext->nb_streams; i++)
+    /* 遍历 stream 查找音视频流的数据 */
+    for (unsigned int i = 0; i < data->formatContext->nb_streams; i++)
     {
-        if (formatContext->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_VIDEO)
+        if (data->formatContext->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_VIDEO)
         {
-            videoIndex = i;
+            data->videoIndex = i;
         }
 
-        if (formatContext->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_AUDIO)
+        if (data->formatContext->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_AUDIO)
         {
-            audioIndex = i;
+            data->audioIndex = i;
         }
     }
 
-    if (audioIndex == -1 && videoIndex == -1)
+    if (data->audioIndex == -1 && data->videoIndex == -1)
     {
         fprintf(stderr, "cannot find stream\n");
-        avformat_free_context(formatContext);
-        return EXIT_FAILURE;
+        avformat_free_context(data->formatContext);
+        return false;
     }
 
-    /* 解码: H.264、pcm 等音视频编码数据恢复为原始数据 */
+    return true;
+}
 
-    // 获取流
-    AVStream* videoStream = formatContext->streams[videoIndex];
-    AVStream* audioStream = formatContext->streams[audioIndex];
+// 初始化视频解码器
+bool initVideoCodec(DecoderData* data)
+{
+    data->videoStream = data->formatContext->streams[data->videoIndex];
+    data->videoParams = data->videoStream->codecpar;
 
-    // 获取解码器参数
-    AVCodecParameters* videoParams = videoStream->codecpar;
-    AVCodecParameters* audioParams = audioStream->codecpar;
+    data->videoCodec = avcodec_find_decoder(data->videoParams->codec_id);
+    if (data->videoCodec == NULL)
+    {
+        fprintf(stderr, "avcodec_find_decoder failed\n");
+        return false;
+    }
 
-    // 获取解码器
-    AVCodec* videoCodec = avcodec_find_decoder(videoParams->codec_id);
-    AVCodec* audioCodec = avcodec_find_decoder(audioParams->codec_id);
+    data->videoContext = avcodec_alloc_context3(data->videoCodec);
+    if (data->videoContext == NULL)
+    {
+        fprintf(stderr, "avcodec_alloc_context3 failed\n");
+        return false;
+    }
 
-    // 创建解码器上下文
-    AVCodecContext* videoContext = avcodec_alloc_context3(videoCodec);
-    AVCodecContext* audioContext = avcodec_alloc_context3(audioCodec);
+    if (avcodec_parameters_to_context(data->videoContext, data->videoParams) < 0)
+    {
+        fprintf(stderr, "avcodec_parameters_to_context failed\n");
+        return false;
+    }
 
-    // 打开解码器
-    avcodec_parameters_to_context(videoContext, videoParams);
-    avcodec_parameters_to_context(audioContext, audioParams);
-    avcodec_open2(videoContext, videoCodec, NULL);
-    avcodec_open2(audioContext, audioCodec, NULL);
+    if (avcodec_open2(data->videoContext, data->videoCodec, NULL) < 0)
+    {
+        fprintf(stderr, "avcodec_open2 failed\n");
+        return false;
+    }
 
-    // 为解码出来的帧分配缓存
-    AVFrame* decodedVideoFrame = av_frame_alloc();
-    AVFrame* decodedAudioFrame = av_frame_alloc();
+    return true;
+}
 
-    // 为显示的视频帧分配内存
-    AVFrame* displayVideoFrame = av_frame_alloc();
-    int videoBufferSize = av_image_get_buffer_size(
-        AV_PIX_FMT_YUV420P, 
+// 初始化音频解码器
+bool initAudioCodec(DecoderData* data)
+{
+    data->audioStream = data->formatContext->streams[data->audioIndex];
+    data->audioParams = data->audioStream->codecpar;
+
+    data->audioCodec = avcodec_find_decoder(data->audioParams->codec_id);
+    if (data->audioCodec == NULL)
+    {
+        fprintf(stderr, "avcodec_find_decoder failed\n");
+        return false;
+    }
+
+    data->audioContext = avcodec_alloc_context3(data->audioCodec);
+    if (data->audioContext == NULL)
+    {
+        fprintf(stderr, "avcodec_alloc_context3 failed\n");
+        return false;
+    }
+
+    if (avcodec_parameters_to_context(data->audioContext, data->audioParams) < 0)
+    {
+        fprintf(stderr, "avcodec_parameters_to_context failed\n");
+        return false;
+    }
+
+    if (avcodec_open2(data->audioContext, data->audioCodec, NULL) < 0)
+    {
+        fprintf(stderr, "avcodec_open2 failed\n");
+        return false;
+    }
+
+    return true;
+}
+
+// 初始化软件缩放算法
+bool initSwScale(DecoderData* data, int width, int height, enum AVPixelFormat fmt)
+{
+    data->width = width;
+    data->height = height;
+    data->pixFormat = fmt;
+
+    data->decodedVideoFrame = av_frame_alloc();
+    data->displayVideoFrame = av_frame_alloc();
+
+    // 计算缩放后需要的视频缓冲区大小
+    data->videoBufferSize = av_image_get_buffer_size(
+        data->pixFormat, 
         data->width, 
         data->height, 
         1
     );
 
-    // 为缩放后的视频数据分配内存
-    void* displayVideoBuffer = av_malloc(videoBufferSize);
+    // 为缩放后的视频缓冲区分配内存
+    data->displayVideoBuffer = av_malloc(data->videoBufferSize);
     av_image_fill_arrays(
-        displayVideoFrame->data, 
-        displayVideoFrame->linesize, 
-        displayVideoBuffer, 
-        AV_PIX_FMT_YUV420P,
+        data->displayVideoFrame->data, 
+        data->displayVideoFrame->linesize, 
+        data->displayVideoBuffer, 
+        data->pixFormat,
         data->width, 
         data->height,
         1
     );
 
-    // 创建视频数据队列
-    data->videoQueue = createQueue(videoBufferSize);
-
-    // 为播放的音频帧分配内存
-    AVFrame* displayAudioFrame = av_frame_alloc();
-
-    // 软件缩放上下文
-    struct SwsContext* swsContext = sws_getContext(
-        videoParams->width,     // 缩放之前的尺寸
-        videoParams->height,
-        videoParams->format,    // 缩放之前像素格式
+    // 创建软件缩放算法上下文
+    data->swsContext = sws_getContext(
+        data->videoParams->width,     // 缩放之前的尺寸
+        data->videoParams->height,
+        data->videoParams->format,    // 缩放之前像素格式
         data->width,            // 缩放后的尺寸
         data->height,
-        AV_PIX_FMT_YUV420P,     // 缩放后的像素格式
+        data->pixFormat,        // 缩放后的像素格式
         SWS_BICUBIC,            // 缩放算法:双三次方插值
         NULL,
         NULL,
         NULL
     );
 
+    // 创建视频数据队列
+    data->videoQueue = createQueue(data->videoBufferSize);
+    data->videoMutex = SDL_CreateMutex();
+
+    return true;
+}
+
+// 初始化软件重采样算法
+bool initSwResample(DecoderData* data, int64_t layout, enum AVSampleFormat fmt, int rate)
+{
+    data->layout = layout;
+    data->sampleFormat = fmt;
+    data->rate = rate;
+
+    // 为播放的音频帧分配内存
+    data->displayAudioFrame = av_frame_alloc();
+    data->decodedAudioFrame = av_frame_alloc();
+
     /* 初始化音频重采样 */
-    SwrContext* swrContext = swr_alloc();
+    data->swrContext = swr_alloc();
     swr_alloc_set_opts(
-        swrContext,
-        AV_CH_LAYOUT_STEREO,            // 输出声道布局: 双声道 stereo
-        AV_SAMPLE_FMT_FLT,              // 输出音频数据格式: 浮点数
-        44100,                          // 输出采样率
-        audioParams->channel_layout,    // 输入声道布局
-        audioParams->format,            // 输入格式
-        audioParams->sample_rate,       // 输入采样频率
+        data->swrContext,
+        data->layout,                       // 输出声道布局
+        data->sampleFormat,                 // 输出音频数据格式
+        data->rate,                         // 输出采样率
+        data->audioParams->channel_layout,  // 输入声道布局
+        data->audioParams->format,          // 输入格式
+        data->audioParams->sample_rate,     // 输入采样频率
         0,
         NULL
     );
 
-    swr_init(swrContext);
+    swr_init(data->swrContext);
 
     // 重采样输出缓存空间大小
-    int audioBufferSize = av_samples_get_buffer_size(
+    data->audioBufferSize = av_samples_get_buffer_size(
         NULL, 
-        2,                              // 输出双声道
-        audioParams->frame_size,        // 一个声道的采样个数，受限于输入
-        AV_SAMPLE_FMT_FLT,              // 数据格式
+        av_get_channel_layout_nb_channels(data->layout),    // 输出声道数
+        data->audioParams->frame_size,                      // 一个声道的采样个数，受限于输入的采样个数
+        data->sampleFormat,                                 // 数据格式
         1
     );
 
     // 创建音频数据队列
-    data->audioQueue = createQueue(audioBufferSize);
+    data->audioQueue = createQueue(data->audioBufferSize);
+    data->audioMutex = SDL_CreateMutex();
 
     // 创建音频缓存
-    uint8_t* displayAudioBuffer = av_malloc(audioBufferSize);
+    data->displayAudioBuffer = av_malloc(data->audioBufferSize);
 
+    return true;
+}
+
+// 解码线程
+int decoder(void* userdata)
+{
+    DecoderData* data = (DecoderData*)(userdata);
     AVPacket packet;
     while (1)
     {
         if (isExit(data))
             break;
 
-        if (av_read_frame(formatContext, &packet) < 0)
+        if (av_read_frame(data->formatContext, &packet) < 0)
             break;
 
         // 解码视频
         do
         {
-            if (packet.stream_index != videoIndex)
+            if (packet.stream_index != data->videoIndex)
                 break;
             
             // 将 packet 发送给视频解码器解码
-            int ret = avcodec_send_packet(videoContext, &packet);
+            int ret = avcodec_send_packet(data->videoContext, &packet);
             if (ret < 0) 
             {
                 // EAGAIN 是当前数据不完整，需要后续的 packet 补充数据
@@ -315,7 +482,7 @@ int decoder(void* userdata)
             }
 
             // 从解码器接收解码后的视频数据
-            ret = avcodec_receive_frame(videoContext, decodedVideoFrame);
+            ret = avcodec_receive_frame(data->videoContext, data->decodedVideoFrame);
             if (ret < 0)
             {
                 if (ret != AVERROR(EAGAIN))
@@ -326,17 +493,17 @@ int decoder(void* userdata)
 
             // 将解码后的数据进行缩放
             ret = sws_scale(
-                swsContext, 
-                (const unsigned char * const*)decodedVideoFrame->data, 
-                decodedVideoFrame->linesize, 
+                data->swsContext, 
+                (const unsigned char * const*)(data->decodedVideoFrame->data), 
+                data->decodedVideoFrame->linesize, 
                 0, 
-                videoParams->height, 
-                displayVideoFrame->data, 
-                displayVideoFrame->linesize
+                data->videoParams->height, 
+                data->displayVideoFrame->data, 
+                data->displayVideoFrame->linesize
             );
 
             // 释放 frame
-            av_frame_unref(decodedVideoFrame);
+            av_frame_unref(data->decodedVideoFrame);
 
             if (ret <= 0)
             {
@@ -345,17 +512,17 @@ int decoder(void* userdata)
             }
 
             // 将最终显示的视频数据压入队列
-            pushVideo(data, displayVideoBuffer);
+            pushVideo(data, data->displayVideoBuffer);
         } while (0);
         
         // 解码音频
         do
         {
-            if (packet.stream_index != audioIndex)
+            if (packet.stream_index != data->audioIndex)
                 break;
 
             // 将 packet 发送给音频解码器解码
-            int ret = avcodec_send_packet(audioContext, &packet);
+            int ret = avcodec_send_packet(data->audioContext, &packet);
             if (ret < 0) 
             {
                 // EAGAIN 是当前数据不完整，需要后续的 packet 补充数据
@@ -366,7 +533,7 @@ int decoder(void* userdata)
             }
 
             // 从解码器接收解码后的音频数据
-            ret = avcodec_receive_frame(audioContext, decodedAudioFrame);
+            ret = avcodec_receive_frame(data->audioContext, data->decodedAudioFrame);
             if (ret < 0)
             {
                 if (ret != AVERROR(EAGAIN))
@@ -377,11 +544,11 @@ int decoder(void* userdata)
 
             // 进行重采样
             ret = swr_convert(
-                swrContext, 
-                &displayAudioBuffer, 
-                audioParams->frame_size, 
-                (const uint8_t**)decodedAudioFrame->data, 
-                decodedAudioFrame->nb_samples
+                data->swrContext, 
+                &(data->displayAudioBuffer), 
+                data->audioParams->frame_size, 
+                (const uint8_t**)(data->decodedAudioFrame->data), 
+                data->decodedAudioFrame->nb_samples
             );
             if (ret < 0)
             {
@@ -390,7 +557,7 @@ int decoder(void* userdata)
                     
                 break;
             } 
-            pushAudio(data, displayAudioBuffer);
+            pushAudio(data, data->displayAudioBuffer);
 
         } while (0);
 
@@ -399,20 +566,6 @@ int decoder(void* userdata)
 
         
     }
-    
-
-    /* 释放资源 */
-    av_free(displayVideoBuffer);
-    // swr_free(swrContext);
-    sws_freeContext(swsContext);
-    av_frame_free(&displayVideoFrame);
-    av_frame_free(&decodedVideoFrame);
-    av_frame_free(&displayAudioFrame);
-    av_frame_free(&decodedAudioFrame);
-    avcodec_free_context(&audioContext);
-    avcodec_free_context(&videoContext);
-    avformat_close_input(&formatContext);
-    avformat_free_context(formatContext);
     
     setExit(data, 1);
 

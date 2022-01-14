@@ -43,7 +43,12 @@ int main(int argc, char* argv[])
     SDL_Texture* texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_IYUV, SDL_TEXTUREACCESS_TARGET|SDL_TEXTUREACCESS_STREAMING, WIDTH, HEIGHT);
     
     // 创建跨线程交互数据
-    DecoderData* data = createDecoderData(argv[1], WIDTH, HEIGHT);
+    DecoderData* data = createDecoderData(argv[1]);
+    unpack(data);
+    initVideoCodec(data);
+    initSwScale(data, 640, 360, AV_PIX_FMT_YUV420P);
+    initAudioCodec(data);
+    initSwResample(data, AV_CH_LAYOUT_STEREO, AV_SAMPLE_FMT_FLT, 44100);
 
     /* 打开音频设备 */
     SDL_AudioSpec audioSpec;
