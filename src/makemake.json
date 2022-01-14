@@ -9,7 +9,7 @@
             "cxxflags": "-O2 -W -Wall",
             "ar": "ar",
             "arflags": "rcs",
-            "libs": "-lSDL2 -lavformat -lavcodec -lavutil -lswscale",
+            "libs": "-lSDL2 -lavformat -lavcodec -lavutil -lswscale -lswresample",
             "install": "",
             "cmd": "",
             "sources": [

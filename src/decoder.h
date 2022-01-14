@@ -11,9 +11,6 @@ DecoderData* createDecoderData(const char* file, int width, int height);
 // 删除 
 void deleteDecoderData(DecoderData* data);
 
-// 解码器线程
-int decoder(void* userdata);
-
 // 退出
 void setExit(DecoderData* data, int n);
 
@@ -25,5 +22,14 @@ void pushVideo(DecoderData* data, void* videoBuffer);
 
 // 弹出一帧视频数据
 void* popVideo(DecoderData* data);
+
+// 压入一帧音频数据
+void pushAudio(DecoderData* data, void* audioBuffer);
+
+// 弹出一帧音频数据
+void* popAudio(DecoderData* data);
+
+// 解码器线程
+int decoder(void* userdata);
 
 #endif // FFMPEG_PLAYER_DEMO_DECODER

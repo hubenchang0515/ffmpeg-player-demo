@@ -8,7 +8,7 @@ clean:
 	rm -f main.o queue.o decoder.o
 
 player : main.o queue.o decoder.o  
-	gcc -o $@ $^ -lSDL2 -lavformat -lavcodec -lavutil -lswscale 
+	gcc -o $@ $^ -lSDL2 -lavformat -lavcodec -lavutil -lswscale -lswresample 
 
 main.o: main.c queue.h decoder.h
 	gcc -c main.c -O2 -W -Wall -g 

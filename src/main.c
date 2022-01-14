@@ -16,6 +16,8 @@
 static const int WIDTH = 640;
 static const int HEIGHT = 360;
 
+void getAudioData(void *userdata, Uint8* stream, int len);
+
 int main(int argc, char* argv[])
 {   
     /* 参数检查 */
@@ -44,13 +46,22 @@ int main(int argc, char* argv[])
     DecoderData* data = createDecoderData(argv[1], WIDTH, HEIGHT);
 
     /* 打开音频设备 */
-    // SDL_AudioSpec audioSpec;
-    // audioSpec.callback = getAudioData;
-    // audioSpec.userdata = data;
-    // SDL_OpenAudio(&audioSpec, NULL);
+    SDL_AudioSpec audioSpec;
+    audioSpec.channels = 2;             // stereo
+    audioSpec.format = AUDIO_F32LSB;    // 32bit 小端浮点数
+    audioSpec.freq = 44100;             // 44100Hz
+    audioSpec.silence = 0;
+    audioSpec.samples = 1024;
+
+    audioSpec.userdata = data;
+    audioSpec.callback = getAudioData;
+    SDL_OpenAudio(&audioSpec, NULL);
 
     /* 创建线程进行解码 */
     SDL_Thread* thread = SDL_CreateThread(decoder, "decoder", data);
+
+    /* 开始播放音频 */
+    SDL_PauseAudio(0);
 
     SDL_Event event;
     while (1)
@@ -76,8 +87,9 @@ int main(int argc, char* argv[])
         }
     }
 
+    SDL_PauseAudio(1);
     SDL_WaitThread(thread, NULL);
-
+    
     deleteDecoderData(data);
     SDL_DestroyTexture(texture);
     SDL_DestroyRenderer(renderer);
@@ -85,4 +97,14 @@ int main(int argc, char* argv[])
     SDL_Quit();
 
     return EXIT_SUCCESS;
+}
+
+void getAudioData(void *userdata, Uint8* stream, int len)
+{
+    DecoderData* data = (DecoderData*)(userdata);
+    void* audioBuffer = popAudio(data);
+    if (audioBuffer != NULL)
+    {
+        SDL_memcpy(stream, audioBuffer, len);
+    }
 }

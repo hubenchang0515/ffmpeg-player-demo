@@ -4,10 +4,11 @@
 #include <SDL2/SDL.h>               // libsdl2-dev
 
 /* ffmpeg */
-#include <libavformat/avformat.h>   // libavformat-dev  : Audio-Video Foramt - 用于音视频文件封装、解封装
-#include <libavcodec/avcodec.h>     // libavcodec-dev   : Audio-Video Codec - 用于音视频数据编解码
-#include <libavutil/imgutils.h>     // libavutil-dev    : Audio-Video Utilities - 一些实用函数
-#include <libswscale/swscale.h>     // libswscale-dev   : Software Scale - 软件缩放算法
+#include <libavformat/avformat.h>       // libavformat-dev   : Audio-Video Foramt - 用于音视频文件封装、解封装
+#include <libavcodec/avcodec.h>         // libavcodec-dev    : Audio-Video Codec - 用于音视频数据编解码
+#include <libavutil/imgutils.h>         // libavutil-dev     : Audio-Video Utilities - 一些实用函数
+#include <libswscale/swscale.h>         // libswscale-dev    : Software Scale - 软件缩放算法
+#include <libswresample/swresample.h>   // libswresample-dev : Software Resample - 软件重采样算法
 
 #include "decoder.h"
 
@@ -26,6 +27,29 @@ typedef struct DecoderData
 
     SDL_mutex* audioMutex;
     Queue* audioQueue;
+
+    AVFormatContext* formatContext;
+    int videoIndex;                 // 视频流的索引
+    int audioIndex;                 // 音频流的索引
+    
+    AVStream* videoStream;          // 视频流
+    AVCodecParameters* videoParams; // 视频流参数
+    AVCodec* videoCodec;            // 视频解码器
+    AVCodecContext* videoContext;   // 视频解码器上下文
+    AVFrame* decodedVideoFrame;     // 解码后的视频帧
+    int videoBufferSize;            // 缩放后的视频缓冲区大小
+    void* displayVideoBuffer;       // 缩放后的视频缓冲区
+    AVFrame* displayVideoFrame;     // 缩放后的视频帧
+    struct SwsContext* swsContext;  // 缩放算法上下文
+
+    AVStream* audioStream;          // 音频流
+    AVCodecParameters* audioParams; // 音频流参数
+    AVCodec* audioCodec;            // 音频解码器
+    AVCodecContext* audioContext;   // 音频解码器上下文
+    AVFrame* decodedAudioFrame;     // 解码后的音频帧
+    int audioBufferSize;            // 重采样后音频缓冲区大小
+    uint8_t* displayAudioBuffer;    // 重采样后音频缓冲区
+    SwrContext* swrContext;         // 重采样上下文
 }DecoderData;
 
 // 初始化
@@ -98,6 +122,26 @@ void* popVideo(DecoderData* data)
 
     return buffer;
 }
+
+// 压入一帧音频数据
+void pushAudio(DecoderData* data, void* audioBuffer)
+{
+    SDL_LockMutex(data->videoMutex);
+    pushQueue(data->audioQueue, audioBuffer);
+    SDL_UnlockMutex(data->videoMutex);
+}
+
+// 弹出一帧音频数据
+void* popAudio(DecoderData* data)
+{
+    SDL_LockMutex(data->videoMutex);
+    void* buffer = popQueue(data->audioQueue);
+    SDL_UnlockMutex(data->videoMutex);
+
+    return buffer;
+}
+
+
 
 // 解码线程
 int decoder(void* userdata)
@@ -213,6 +257,37 @@ int decoder(void* userdata)
         NULL
     );
 
+    /* 初始化音频重采样 */
+    SwrContext* swrContext = swr_alloc();
+    swr_alloc_set_opts(
+        swrContext,
+        AV_CH_LAYOUT_STEREO,            // 输出声道布局: 双声道 stereo
+        AV_SAMPLE_FMT_FLT,              // 输出音频数据格式: 浮点数
+        44100,                          // 输出采样率
+        audioParams->channel_layout,    // 输入声道布局
+        audioParams->format,            // 输入格式
+        audioParams->sample_rate,       // 输入采样频率
+        0,
+        NULL
+    );
+
+    swr_init(swrContext);
+
+    // 重采样输出缓存空间大小
+    int audioBufferSize = av_samples_get_buffer_size(
+        NULL, 
+        2,                              // 输出双声道
+        audioParams->frame_size,        // 一个声道的采样个数，受限于输入
+        AV_SAMPLE_FMT_FLT,              // 数据格式
+        1
+    );
+
+    // 创建音频数据队列
+    data->audioQueue = createQueue(audioBufferSize);
+
+    // 创建音频缓存
+    uint8_t* displayAudioBuffer = av_malloc(audioBufferSize);
+
     AVPacket packet;
     while (1)
     {
@@ -230,10 +305,9 @@ int decoder(void* userdata)
             
             // 将 packet 发送给视频解码器解码
             int ret = avcodec_send_packet(videoContext, &packet);
-            
-            // EAGAIN 是当前数据不完整，需要后续的 packet 补充数据
             if (ret < 0) 
             {
+                // EAGAIN 是当前数据不完整，需要后续的 packet 补充数据
                 if (ret != AVERROR(EAGAIN))
                     fprintf(stderr, "avcodec_send_packet failed: %d\n", ret);
 
@@ -279,6 +353,45 @@ int decoder(void* userdata)
         {
             if (packet.stream_index != audioIndex)
                 break;
+
+            // 将 packet 发送给音频解码器解码
+            int ret = avcodec_send_packet(audioContext, &packet);
+            if (ret < 0) 
+            {
+                // EAGAIN 是当前数据不完整，需要后续的 packet 补充数据
+                if (ret != AVERROR(EAGAIN))
+                    fprintf(stderr, "avcodec_send_packet failed: %d\n", ret);
+
+                break;
+            }
+
+            // 从解码器接收解码后的音频数据
+            ret = avcodec_receive_frame(audioContext, decodedAudioFrame);
+            if (ret < 0)
+            {
+                if (ret != AVERROR(EAGAIN))
+                    fprintf(stderr, "avcodec_receive_frame failed\n");
+                    
+                break;
+            }
+
+            // 进行重采样
+            ret = swr_convert(
+                swrContext, 
+                &displayAudioBuffer, 
+                audioParams->frame_size, 
+                (const uint8_t**)decodedAudioFrame->data, 
+                decodedAudioFrame->nb_samples
+            );
+            if (ret < 0)
+            {
+                if (ret != AVERROR(EAGAIN))
+                    fprintf(stderr, "swr_convert failed\n");
+                    
+                break;
+            } 
+            pushAudio(data, displayAudioBuffer);
+
         } while (0);
 
         // 释放 packet
@@ -290,6 +403,7 @@ int decoder(void* userdata)
 
     /* 释放资源 */
     av_free(displayVideoBuffer);
+    // swr_free(swrContext);
     sws_freeContext(swsContext);
     av_frame_free(&displayVideoFrame);
     av_frame_free(&decodedVideoFrame);
@@ -304,21 +418,3 @@ int decoder(void* userdata)
 
     return EXIT_SUCCESS;
 }
-
-// void getAudioData(void* userdata, Uint8* stream, int len)
-// {
-//     DecoderData* data = userdata;
-
-//     if (data->audioSize > (size_t)(len)) // 数据足够
-//     {
-//         SDL_memcpy(stream, data->audioData, len);
-//         SDL_memcpy(data->audioData, data->audioData + len, data->audioSize - len);
-//         data->audioSize -= len;
-//         data->audioData = realloc(data->audioData, data->audioSize);
-//     }
-//     else // 数据不足
-//     {
-//         SDL_memcpy(stream, data->audioData, data->audioSize);
-//         data->audioData = realloc(data->audioData, 0);
-//     }
-// }
