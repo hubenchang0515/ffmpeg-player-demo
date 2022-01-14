@@ -16,8 +16,8 @@ typedef struct DecoderData
 {
     const char* file;
 
-    SDL_mutex* exitMutex;
-    int exit;
+    SDL_mutex* endMutex;
+    bool end;
 
     SDL_mutex* videoMutex;
     Queue* videoQueue;
@@ -50,6 +50,7 @@ typedef struct DecoderData
     int64_t layout;                     // 重采样后的声道布局
     enum AVSampleFormat sampleFormat;   // 重采样后的音频采样格式
     int rate;                           // 重采样后的采样频率
+    int samples;                        // 重采样后的一个通道的采样数
     int audioBufferSize;                // 重采样后的音频缓冲区大小
     uint8_t* displayAudioBuffer;        // 重采样后的音频缓冲区
     AVFrame* displayAudioFrame;         // 重采样后的音频帧
@@ -59,8 +60,8 @@ typedef struct DecoderData
 void resetDecoderData(DecoderData* data)
 {
     data->file = NULL;
-    data->exitMutex = NULL;
-    data->exit = 0;
+    data->endMutex = NULL;
+    data->end = false;
 
     data->videoMutex = NULL;
     data->videoQueue = NULL;
@@ -112,8 +113,6 @@ DecoderData* createDecoderData(const char* file)
 
     resetDecoderData(data);
     data->file = file;
-    data->exitMutex = SDL_CreateMutex();
-    data->exit = 0;
 
     
     return data;
@@ -179,28 +178,29 @@ void deleteDecoderData(DecoderData* data)
     if (data->videoMutex != NULL)
         SDL_DestroyMutex(data->videoMutex);
 
-    if (data->exitMutex != NULL)
-        SDL_DestroyMutex(data->exitMutex);
+    if (data->endMutex != NULL)
+        SDL_DestroyMutex(data->endMutex);
     
     free(data);
 }
 
-// 退出
-void setExit(DecoderData* data, int n)
+// 设置视频解码结束
+void setEnd(DecoderData* data, bool n)
 {
-    SDL_LockMutex(data->exitMutex);
-    data->exit = n;
-    SDL_UnlockMutex(data->exitMutex);
+    SDL_LockMutex(data->endMutex);
+    data->end = n;
+    SDL_UnlockMutex(data->endMutex);
 }
 
-// 读取是否退出
-int isExit(const DecoderData* data)
+// 是否视频解码结束
+int isEnd(const DecoderData* data)
 {
-    SDL_LockMutex(data->exitMutex);
-    int n = data->exit;
-    SDL_UnlockMutex(data->exitMutex);
+    SDL_LockMutex(data->endMutex);
+    int n = data->end;
+    SDL_UnlockMutex(data->endMutex);
     return n;
 }
+
 
 // 压入一帧视频数据
 void pushVideo(DecoderData* data, void* videoBuffer)
@@ -432,11 +432,14 @@ bool initSwResample(DecoderData* data, int64_t layout, enum AVSampleFormat fmt, 
 
     swr_init(data->swrContext);
 
-    // 重采样输出缓存空间大小
+    // 计算重采样输出中，一个通道的采样个数
+    data->samples = data->audioParams->frame_size * data->rate / data->audioParams->sample_rate;
+
+    // 计算重采样输出缓存空间大小
     data->audioBufferSize = av_samples_get_buffer_size(
         NULL, 
         av_get_channel_layout_nb_channels(data->layout),    // 输出声道数
-        data->audioParams->frame_size,                      // 一个声道的采样个数，受限于输入的采样个数
+        data->samples,                                      // 一个通道的采样个数
         data->sampleFormat,                                 // 数据格式
         1
     );
@@ -451,14 +454,19 @@ bool initSwResample(DecoderData* data, int64_t layout, enum AVSampleFormat fmt, 
     return true;
 }
 
-// 解码线程
-int decoder(void* userdata)
+// 重采样后的一个通道的采样数
+int getSamples(DecoderData* data)
 {
-    DecoderData* data = (DecoderData*)(userdata);
+    return data->samples;
+}
+
+// 解码
+int decode(DecoderData* data)
+{
     AVPacket packet;
     while (1)
     {
-        if (isExit(data))
+        if (isEnd(data))
             break;
 
         if (av_read_frame(data->formatContext, &packet) < 0)
@@ -550,6 +558,10 @@ int decoder(void* userdata)
                 (const uint8_t**)(data->decodedAudioFrame->data), 
                 data->decodedAudioFrame->nb_samples
             );
+
+            // 释放 frame
+            av_frame_unref(data->decodedAudioFrame);
+
             if (ret < 0)
             {
                 if (ret != AVERROR(EAGAIN))
@@ -563,11 +575,8 @@ int decoder(void* userdata)
 
         // 释放 packet
         av_packet_unref(&packet);
-
-        
     }
     
-    setExit(data, 1);
-
+    setEnd(data, true);
     return EXIT_SUCCESS;
 }

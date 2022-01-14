@@ -11,11 +11,11 @@ DecoderData* createDecoderData(const char* file);
 // 删除 
 void deleteDecoderData(DecoderData* data);
 
-// 退出
-void setExit(DecoderData* data, int n);
+// 设置解码结束
+void setEnd(DecoderData* data, bool n);
 
-// 读取是否退出
-int isExit(const DecoderData* data);
+// 是否解码结束
+int isEnd(const DecoderData* data);
 
 // 压入一帧视频数据
 void pushVideo(DecoderData* data, void* videoBuffer);
@@ -44,7 +44,10 @@ bool initSwScale(DecoderData* data, int width, int height, enum AVPixelFormat fm
 // 初始化软件重采样算法
 bool initSwResample(DecoderData* data, int64_t layout, enum AVSampleFormat fmt, int rate);
 
+// 重采样后的一个通道的采样数
+int getSamples(DecoderData* data);
+
 // 解码器线程
-int decoder(void* userdata);
+int decode(DecoderData* data);
 
 #endif // FFMPEG_PLAYER_DEMO_DECODER
