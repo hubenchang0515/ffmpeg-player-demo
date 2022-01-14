@@ -5,7 +5,7 @@
             "type": "executable",
             "cc": "gcc",
             "cxx": "g++",
-            "cflags": "-O2 -W -Wall -g",
+            "cflags": "-O2 -W -Wall -Wextra",
             "cxxflags": "-O2 -W -Wall",
             "ar": "ar",
             "arflags": "rcs",
