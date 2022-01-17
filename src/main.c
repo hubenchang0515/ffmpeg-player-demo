@@ -114,6 +114,7 @@ int main(int argc, char* argv[])
 
     SDL_WaitThread(thread, NULL);       // 等待解码线程退出
     SDL_PauseAudio(1);
+    SDL_CloseAudio();
     
     deleteDecoder(data);
     SDL_DestroyTexture(texture);
