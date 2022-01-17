@@ -10,5 +10,6 @@ Queue* createQueue(size_t itemSize);
 void deleteQueue(Queue* queue);
 bool pushQueue(Queue* queue, const void* item);
 void* popQueue(Queue* queue);
+int countQueue(Queue* queue);
 
 #endif // FFMPEG_PLAYER_DEMO_QUEUQ

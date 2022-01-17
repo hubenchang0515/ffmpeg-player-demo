@@ -5,11 +5,11 @@
             "type": "executable",
             "cc": "gcc",
             "cxx": "g++",
-            "cflags": "-O2 -W -Wall -Wextra",
+            "cflags": "-O2 -W -Wall -Wextra -g -pg",
             "cxxflags": "-O2 -W -Wall",
             "ar": "ar",
             "arflags": "rcs",
-            "libs": "-lSDL2 -lavformat -lavcodec -lavutil -lswscale -lswresample",
+            "libs": "-lSDL2 -lavformat -lavcodec -lavutil -lswscale -lswresample -g -pg",
             "install": "",
             "cmd": "",
             "sources": [

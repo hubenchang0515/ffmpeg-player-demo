@@ -66,3 +66,8 @@ void* popQueue(Queue* queue)
 
     return item;
 }
+
+int countQueue(Queue* queue)
+{
+    return queue->count;
+}

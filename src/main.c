@@ -26,7 +26,7 @@ typedef struct AudioUserData
 
 int threadDecode(void* userdata);
 void getAudioData(void *userdata, Uint8* stream, int len);
-
+void delayFps(double fps);
 
 int main(int argc, char* argv[])
 {   
@@ -84,11 +84,13 @@ int main(int argc, char* argv[])
     SDL_PauseAudio(0);
 
     SDL_Event event;
+    double fps = decoderFps(data);
     while (1)
     {
         // 收到退出事件，退出
         if (SDL_PollEvent(&event) > 0 && event.type == SDL_QUIT)
         {
+            decoderNotifyBuffer(data);
             decoderSetEnd(data, true);
             audio.end = true;
             break;
@@ -97,10 +99,12 @@ int main(int argc, char* argv[])
         void* videoBuffer = decoderPopVideo(data);
         if (videoBuffer != NULL)
         {
+            decoderNotifyBuffer(data);
             SDL_UpdateTexture(texture, NULL, videoBuffer, WIDTH);
             SDL_RenderCopy(renderer, texture, NULL, NULL);
             SDL_RenderPresent(renderer);
             free(videoBuffer);
+            delayFps(fps);
         }
         else if(decoderIsEnd(data) && audio.end)
         {
@@ -120,6 +124,26 @@ int main(int argc, char* argv[])
     return EXIT_SUCCESS;
 }
 
+void delayFps(double fps)
+{
+    static int prevTicks = 0;
+
+    if (prevTicks == 0)
+    {
+        SDL_Delay(1000 / fps);
+        prevTicks = SDL_GetTicks();
+        return;
+    }
+
+    int ticks = SDL_GetTicks();
+
+    int delay = 1000 / fps - (ticks - prevTicks);
+    if (delay > 0)
+        SDL_Delay(delay);
+
+    prevTicks = SDL_GetTicks();
+}
+
 int threadDecode(void* userdata)
 {
     DecoderData* data = (DecoderData*)(userdata);
@@ -135,6 +159,7 @@ void getAudioData(void *userdata, Uint8* stream, int len)
     {
         SDL_memcpy(stream, audioBuffer, len);
         av_free(audioBuffer);
+        decoderNotifyBuffer(decoder);
     }
     else if (decoderIsEnd(decoder))
     {

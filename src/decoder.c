@@ -25,6 +25,10 @@ typedef struct DecoderData
     SDL_mutex* audioMutex;
     Queue* audioQueue;
 
+    // 用于主线程通知解码线程继续解码
+    SDL_cond* avCond;
+    SDL_mutex* avMutex;
+
     AVFormatContext* formatContext;
     int videoIndex;                 // 视频流的索引
     int audioIndex;                 // 音频流的索引
@@ -112,6 +116,8 @@ DecoderData* createDecoder()
     }
 
     resetDecoderData(data);
+    data->avCond = SDL_CreateCond();
+    data->avMutex = SDL_CreateMutex();
     return data;
 }
 
@@ -163,6 +169,12 @@ void deleteDecoder(DecoderData* data)
         avformat_free_context(data->formatContext);
     }
 
+    if (data->avMutex != NULL)
+        SDL_DestroyMutex(data->avMutex);
+
+    if (data->avCond != NULL)
+        SDL_DestroyCond(data->avCond);
+
     if (data->audioQueue != NULL)
         deleteQueue(data->audioQueue);
 
@@ -198,7 +210,6 @@ int decoderIsEnd(const DecoderData* data)
     return n;
 }
 
-
 // 压入一帧视频数据
 void decoderPushVideo(DecoderData* data, void* videoBuffer)
 {
@@ -217,6 +228,16 @@ void* decoderPopVideo(DecoderData* data)
     return buffer;
 }
 
+// 获取视频队列缓存帧数
+int decoderCountVideo(DecoderData* data)
+{
+    SDL_LockMutex(data->videoMutex);
+    int n = countQueue(data->videoQueue);
+    SDL_UnlockMutex(data->videoMutex);
+
+    return n;
+}
+
 // 压入一帧音频数据
 void decoderPushAudio(DecoderData* data, void* audioBuffer)
 {
@@ -233,6 +254,32 @@ void* decoderPopAudio(DecoderData* data)
     SDL_UnlockMutex(data->videoMutex);
 
     return buffer;
+}
+
+// 获取音频队列缓存帧数
+int decoderCountAudio(DecoderData* data)
+{
+    SDL_LockMutex(data->audioMutex);
+    int n = countQueue(data->audioQueue);
+    SDL_UnlockMutex(data->audioMutex);
+
+    return n;
+}
+
+// 等待队列空间
+void decoderWaitBuffer(DecoderData* data)
+{
+    SDL_LockMutex(data->avMutex);
+    SDL_CondWait(data->avCond, data->avMutex);
+    SDL_UnlockMutex(data->avMutex);
+}
+
+// 通知解码器,队列有空间
+void decoderNotifyBuffer(DecoderData* data)
+{
+    SDL_LockMutex(data->avMutex);
+    SDL_CondSignal(data->avCond);
+    SDL_UnlockMutex(data->avMutex);
 }
 
 // 解封装: 从 MP4、AVI 等封装格式中提取出 H.264、pcm 等音视频编码数据
@@ -458,6 +505,12 @@ int decoderSamples(DecoderData* data)
     return data->samples;
 }
 
+// 视频的帧率
+double decoderFps(DecoderData* data)
+{
+    return data->videoStream->avg_frame_rate.num / (double)data->videoStream->avg_frame_rate.den;
+}
+
 // 解码
 int decoderRun(DecoderData* data)
 {
@@ -466,6 +519,12 @@ int decoderRun(DecoderData* data)
     {
         if (decoderIsEnd(data))
             break;
+
+        if (decoderCountVideo(data) > 30 && decoderCountAudio(data) > 30)
+        {
+            decoderWaitBuffer(data);
+            continue;
+        }
 
         if (av_read_frame(data->formatContext, &packet) < 0)
             break;

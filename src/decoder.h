@@ -23,11 +23,23 @@ void decoderPushVideo(DecoderData* data, void* videoBuffer);
 // 弹出一帧视频数据
 void* decoderPopVideo(DecoderData* data);
 
+// 获取视频队列缓存帧数
+int decoderCountVideo(DecoderData* data);
+
 // 压入一帧音频数据
 void decoderPushAudio(DecoderData* data, void* audioBuffer);
 
 // 弹出一帧音频数据
 void* decoderPopAudio(DecoderData* data);
+
+// 获取音频队列缓存帧数
+int decoderCountAudio(DecoderData* data);
+
+// 等待队列空间
+void decoderWaitBuffer(DecoderData* data);
+
+// 通知解码器,队列有空间
+void decoderNotifyBuffer(DecoderData* data);
 
 // 解封装: 从 MP4、AVI 等封装格式中提取出 H.264、pcm 等音视频编码数据
 bool decoderUnpack(DecoderData* data, const char* file);
@@ -46,6 +58,9 @@ bool decoderInitSwResample(DecoderData* data, int64_t layout, enum AVSampleForma
 
 // 重采样后的一个通道的采样数
 int decoderSamples(DecoderData* data);
+
+// 视频的帧率
+double decoderFps(DecoderData* data);
 
 // 解码器线程
 int decoderRun(DecoderData* data);
