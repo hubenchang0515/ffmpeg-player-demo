@@ -75,7 +75,11 @@ int main(int argc, char* argv[])
 
     audioSpec.userdata = &audio;
     audioSpec.callback = getAudioData;
-    SDL_OpenAudio(&audioSpec, NULL);
+    if (SDL_OpenAudio(&audioSpec, NULL) < 0)
+    {
+        printf("cannot open audio device\n");
+        audio.end = true;
+    }
 
     /* 创建线程进行解码 */
     SDL_Thread* thread = SDL_CreateThread(threadDecode, "threadDecode", data);
