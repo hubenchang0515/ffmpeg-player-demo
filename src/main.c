@@ -158,7 +158,7 @@ void getAudioData(void *userdata, Uint8* stream, int len)
     if (audioBuffer != NULL)
     {
         SDL_memcpy(stream, audioBuffer, len);
-        av_free(audioBuffer);
+        free(audioBuffer);
         decoderNotifyBuffer(decoder);
     }
     else if (decoderIsEnd(decoder))
