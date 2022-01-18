@@ -89,15 +89,20 @@ int main(int argc, char* argv[])
 
     SDL_Event event;
     double fps = decoderFps(data);
-    while (1)
+    bool running = true;
+    while (running)
     {
         // 收到退出事件，退出
-        if (SDL_PollEvent(&event) > 0 && event.type == SDL_QUIT)
+        while (SDL_PollEvent(&event) > 0)
         {
-            decoderNotifyBuffer(data);
-            decoderSetEnd(data, true);
-            audio.end = true;
-            break;
+            if (event.type == SDL_QUIT)
+            {
+                decoderNotifyBuffer(data);
+                decoderSetEnd(data, true);
+                audio.end = true;
+                running = false;
+                break;
+            }
         }
 
         void* videoBuffer = decoderPopVideo(data);
