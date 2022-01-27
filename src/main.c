@@ -13,8 +13,8 @@
 #include "decoder.h"
 
 /* 视频通常使用 16:9 的分辨率 */
-static const int WIDTH = 640;
-static const int HEIGHT = 360;
+static const int WIDTH = 1920;
+static const int HEIGHT = 1080;
 
 /* 音频线程数据 */
 typedef struct AudioUserData
@@ -56,7 +56,7 @@ int main(int argc, char* argv[])
     DecoderData* data = createDecoder();
     decoderUnpack(data, argv[1]);
     decoderInitVideoCodec(data);
-    decoderInitSwScale(data, 640, 360, AV_PIX_FMT_YUV420P);
+    decoderInitSwScale(data, WIDTH, HEIGHT, AV_PIX_FMT_YUV420P);
     decoderInitAudioCodec(data);
     decoderInitSwResample(data, AV_CH_LAYOUT_STEREO, AV_SAMPLE_FMT_FLT, 44100);
 

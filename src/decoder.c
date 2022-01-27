@@ -353,7 +353,21 @@ bool decoderInitVideoCodec(DecoderData* data)
     data->videoStream = data->formatContext->streams[data->videoIndex];
     data->videoParams = data->videoStream->codecpar;
 
-    data->videoCodec = avcodec_find_decoder(data->videoParams->codec_id);
+    switch (data->videoParams->codec_id)
+    {
+    case AV_CODEC_ID_H264:
+        data->videoCodec = avcodec_find_decoder_by_name("h264_cuvid");
+        break;
+    case AV_CODEC_ID_HEVC:
+        data->videoCodec = avcodec_find_decoder_by_name("hevc_cuvid");
+        break;
+    default:
+        break; // 清警告
+    }
+    
+    if (data->videoCodec == NULL)
+        data->videoCodec = avcodec_find_decoder(data->videoParams->codec_id);
+
     if (data->videoCodec == NULL)
     {
         fprintf(stderr, "avcodec_find_decoder failed\n");
@@ -366,6 +380,9 @@ bool decoderInitVideoCodec(DecoderData* data)
         fprintf(stderr, "avcodec_alloc_context3 failed\n");
         return false;
     }
+
+    // 使用 GPU 时需要手动设置
+    data->videoContext->pkt_timebase = data->videoStream->time_base;
 
     if (avcodec_parameters_to_context(data->videoContext, data->videoParams) < 0)
     {
@@ -448,18 +465,21 @@ bool decoderInitSwScale(DecoderData* data, int width, int height, enum AVPixelFo
     );
 
     // 创建软件缩放算法上下文
+    AVCodecParameters* params = avcodec_parameters_alloc(); // 使用 GPU 解码会导致像素格式改变
+    avcodec_parameters_from_context(params, data->videoContext);
     data->swsContext = sws_getContext(
         data->videoParams->width,     // 缩放之前的尺寸
         data->videoParams->height,
-        data->videoParams->format,    // 缩放之前像素格式
-        data->width,            // 缩放后的尺寸
+        params->format,               // 缩放之前像素格式
+        data->width,                  // 缩放后的尺寸
         data->height,
-        data->pixFormat,        // 缩放后的像素格式
-        SWS_BICUBIC,            // 缩放算法:双三次方插值
+        data->pixFormat,              // 缩放后的像素格式
+        SWS_BICUBIC,                  // 缩放算法:双三次方插值
         NULL,
         NULL,
         NULL
     );
+    avcodec_parameters_free(&params);
 
     // 创建视频数据队列
     data->videoQueue = createQueue(data->videoBufferSize);
@@ -535,7 +555,7 @@ double decoderFps(DecoderData* data)
 int decoderRun(DecoderData* data)
 {
     AVPacket packet;
-    const int cacheMax = 30;
+    const int cacheMax = 5;
 
     // 计算毫秒级的时间基数
     double videoTimebase = (double)(data->videoStream->time_base.num) / data->videoStream->time_base.den * 1000;
@@ -587,7 +607,7 @@ int decoderRun(DecoderData* data)
                 (const unsigned char * const*)(data->decodedVideoFrame->data), 
                 data->decodedVideoFrame->linesize, 
                 0, 
-                data->videoParams->height, 
+                data->decodedVideoFrame->height, 
                 data->displayVideoFrame->data, 
                 data->displayVideoFrame->linesize
             );
