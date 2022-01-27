@@ -21,9 +21,11 @@ typedef struct DecoderData
 
     SDL_mutex* videoMutex;
     Queue* videoQueue;
+    Queue* videoPtsQueue;
 
     SDL_mutex* audioMutex;
     Queue* audioQueue;
+    Queue* audioPtsQueue;
 
     // 用于主线程通知解码线程继续解码
     SDL_cond* avCond;
@@ -69,9 +71,11 @@ void resetDecoderData(DecoderData* data)
 
     data->videoMutex = NULL;
     data->videoQueue = NULL;
+    data->videoPtsQueue = NULL;
 
     data->audioMutex = NULL;
     data->audioQueue = NULL;
+    data->audioPtsQueue = NULL;
 
     data->formatContext = NULL;
     data->videoIndex = -1;
@@ -211,19 +215,26 @@ int decoderIsEnd(const DecoderData* data)
 }
 
 // 压入一帧视频数据
-void decoderPushVideo(DecoderData* data, void* videoBuffer)
+void decoderPushVideo(DecoderData* data, void* videoBuffer, int64_t pts)
 {
     SDL_LockMutex(data->videoMutex);
     pushQueue(data->videoQueue, videoBuffer);
+    pushQueue(data->videoPtsQueue, &pts);
     SDL_UnlockMutex(data->videoMutex);
 }
 
 // 弹出一帧视频数据
-void* decoderPopVideo(DecoderData* data)
+void* decoderPopVideo(DecoderData* data, int64_t* pts)
 {
     SDL_LockMutex(data->videoMutex);
     void* buffer = popQueue(data->videoQueue);
+    int64_t* _pts = popQueue(data->videoPtsQueue);
     SDL_UnlockMutex(data->videoMutex);
+    if (_pts != NULL)
+    {
+        *pts = *_pts;
+        free(_pts);
+    }
 
     return buffer;
 }
@@ -239,19 +250,26 @@ int decoderCountVideo(DecoderData* data)
 }
 
 // 压入一帧音频数据
-void decoderPushAudio(DecoderData* data, void* audioBuffer)
+void decoderPushAudio(DecoderData* data, void* audioBuffer, int64_t pts)
 {
     SDL_LockMutex(data->videoMutex);
     pushQueue(data->audioQueue, audioBuffer);
+    pushQueue(data->audioPtsQueue, &pts);
     SDL_UnlockMutex(data->videoMutex);
 }
 
 // 弹出一帧音频数据
-void* decoderPopAudio(DecoderData* data)
+void* decoderPopAudio(DecoderData* data, int64_t* pts)
 {
     SDL_LockMutex(data->videoMutex);
     void* buffer = popQueue(data->audioQueue);
+    int64_t* _pts = popQueue(data->audioPtsQueue);
     SDL_UnlockMutex(data->videoMutex);
+    if (_pts != NULL)
+    {
+        *pts = *_pts;
+        free(_pts);
+    }
 
     return buffer;
 }
@@ -445,6 +463,7 @@ bool decoderInitSwScale(DecoderData* data, int width, int height, enum AVPixelFo
 
     // 创建视频数据队列
     data->videoQueue = createQueue(data->videoBufferSize);
+    data->videoPtsQueue = createQueue(sizeof(int64_t));
     data->videoMutex = SDL_CreateMutex();
 
     return true;
@@ -491,6 +510,7 @@ bool decoderInitSwResample(DecoderData* data, int64_t layout, enum AVSampleForma
 
     // 创建音频数据队列
     data->audioQueue = createQueue(data->audioBufferSize);
+    data->audioPtsQueue = createQueue(sizeof(int64_t));
     data->audioMutex = SDL_CreateMutex();
 
     // 创建音频缓存
@@ -515,6 +535,8 @@ double decoderFps(DecoderData* data)
 int decoderRun(DecoderData* data)
 {
     AVPacket packet;
+
+    double videoTimebase = (double)(data->videoStream->time_base.num) / data->videoStream->time_base.den * 1000;
     while (1)
     {
         if (decoderIsEnd(data))
@@ -567,6 +589,9 @@ int decoderRun(DecoderData* data)
                 data->displayVideoFrame->linesize
             );
 
+            // 将最终显示的视频数据压入队列
+            decoderPushVideo(data, data->displayVideoBuffer, data->decodedVideoFrame->pts * videoTimebase);
+
             // 释放 frame
             av_frame_unref(data->decodedVideoFrame);
 
@@ -575,9 +600,6 @@ int decoderRun(DecoderData* data)
                 fprintf(stderr, "sws_scale failed\n");
                 break;
             }
-
-            // 将最终显示的视频数据压入队列
-            decoderPushVideo(data, data->displayVideoBuffer);
         } while (0);
         
         // 解码音频
@@ -616,6 +638,8 @@ int decoderRun(DecoderData* data)
                 data->decodedAudioFrame->nb_samples
             );
 
+            decoderPushAudio(data, data->displayAudioBuffer, data->decodedAudioFrame->pts);
+
             // 释放 frame
             av_frame_unref(data->decodedAudioFrame);
 
@@ -626,7 +650,7 @@ int decoderRun(DecoderData* data)
                     
                 break;
             } 
-            decoderPushAudio(data, data->displayAudioBuffer);
+            
 
         } while (0);
 

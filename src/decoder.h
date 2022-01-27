@@ -18,19 +18,19 @@ void decoderSetEnd(DecoderData* data, bool n);
 int decoderIsEnd(const DecoderData* data);
 
 // 压入一帧视频数据
-void decoderPushVideo(DecoderData* data, void* videoBuffer);
+void decoderPushVideo(DecoderData* data, void* videoBuffer, int64_t pts);
 
 // 弹出一帧视频数据
-void* decoderPopVideo(DecoderData* data);
+void* decoderPopVideo(DecoderData* data, int64_t* pts);
 
 // 获取视频队列缓存帧数
 int decoderCountVideo(DecoderData* data);
 
 // 压入一帧音频数据
-void decoderPushAudio(DecoderData* data, void* audioBuffer);
+void decoderPushAudio(DecoderData* data, void* audioBuffer, int64_t pts);
 
 // 弹出一帧音频数据
-void* decoderPopAudio(DecoderData* data);
+void* decoderPopAudio(DecoderData* data, int64_t* pts);
 
 // 获取音频队列缓存帧数
 int decoderCountAudio(DecoderData* data);

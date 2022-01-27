@@ -26,7 +26,7 @@ typedef struct AudioUserData
 
 int threadDecode(void* userdata);
 void getAudioData(void *userdata, Uint8* stream, int len);
-void delayFps(double fps);
+bool delayTo(uint32_t ms);
 
 int main(int argc, char* argv[])
 {   
@@ -88,7 +88,6 @@ int main(int argc, char* argv[])
     SDL_PauseAudio(0);
 
     SDL_Event event;
-    double fps = decoderFps(data);
     bool running = true;
     while (running)
     {
@@ -105,15 +104,21 @@ int main(int argc, char* argv[])
             }
         }
 
-        void* videoBuffer = decoderPopVideo(data);
+        int64_t pts = 0;
+        void* videoBuffer = decoderPopVideo(data, &pts);
         if (videoBuffer != NULL)
         {
             decoderNotifyBuffer(data);
-            SDL_UpdateTexture(texture, NULL, videoBuffer, WIDTH);
-            SDL_RenderCopy(renderer, texture, NULL, NULL);
-            SDL_RenderPresent(renderer);
+            
+            // 如果进度落后就跳过当前
+            if (delayTo(pts))
+            {
+                SDL_UpdateTexture(texture, NULL, videoBuffer, WIDTH);
+                SDL_RenderCopy(renderer, texture, NULL, NULL);
+                SDL_RenderPresent(renderer);
+            }
+            
             free(videoBuffer);
-            delayFps(fps);
         }
         else if(decoderIsEnd(data) && audio.end)
         {
@@ -134,24 +139,21 @@ int main(int argc, char* argv[])
     return EXIT_SUCCESS;
 }
 
-void delayFps(double fps)
+bool delayTo(uint32_t ms)
 {
-    static int prevTicks = 0;
-
-    if (prevTicks == 0)
+    static uint32_t start = 0;
+    if (start == 0)
     {
-        SDL_Delay(1000 / fps);
-        prevTicks = SDL_GetTicks();
-        return;
+        start = SDL_GetTicks();
     }
 
-    int ticks = SDL_GetTicks();
+    if (start + ms > SDL_GetTicks())
+    {
+        SDL_Delay(start + ms - SDL_GetTicks());
+        return true;
+    }
 
-    int delay = 1000 / fps - (ticks - prevTicks);
-    if (delay > 0)
-        SDL_Delay(delay);
-
-    prevTicks = SDL_GetTicks();
+    return false;
 }
 
 int threadDecode(void* userdata)
@@ -164,7 +166,8 @@ void getAudioData(void *userdata, Uint8* stream, int len)
 {
     AudioUserData* data = (AudioUserData*)(userdata);
     DecoderData* decoder = data->decoder;
-    void* audioBuffer = decoderPopAudio(decoder);
+    int64_t pts;
+    void* audioBuffer = decoderPopAudio(decoder, &pts);
     if (audioBuffer != NULL)
     {
         SDL_memcpy(stream, audioBuffer, len);
