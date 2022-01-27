@@ -20,13 +20,13 @@ static const int HEIGHT = 360;
 typedef struct AudioUserData
 {
     DecoderData* decoder;
-    SDL_mutex* audioMutex;
+    int64_t startTicks;
     bool end;
 }AudioUserData;
 
 int threadDecode(void* userdata);
 void getAudioData(void *userdata, Uint8* stream, int len);
-bool delayTo(uint32_t ms);
+bool delayTo(AudioUserData* audio, uint32_t ms);
 
 int main(int argc, char* argv[])
 {   
@@ -63,7 +63,7 @@ int main(int argc, char* argv[])
     AudioUserData audio;
     audio.decoder = data;
     audio.end = false;
-    audio.audioMutex = SDL_CreateMutex();
+    audio.startTicks = 0;
 
     /* 打开音频设备 */
     SDL_AudioSpec audioSpec;
@@ -111,7 +111,7 @@ int main(int argc, char* argv[])
             decoderNotifyBuffer(data);
             
             // 如果进度落后就跳过当前
-            if (delayTo(pts))
+            if (delayTo(&audio, pts))
             {
                 SDL_UpdateTexture(texture, NULL, videoBuffer, WIDTH);
                 SDL_RenderCopy(renderer, texture, NULL, NULL);
@@ -139,17 +139,16 @@ int main(int argc, char* argv[])
     return EXIT_SUCCESS;
 }
 
-bool delayTo(uint32_t ms)
+bool delayTo(AudioUserData* audio, uint32_t ms)
 {
-    static uint32_t start = 0;
-    if (start == 0)
+    if (audio->startTicks == 0)
     {
-        start = SDL_GetTicks();
+        audio->startTicks = SDL_GetTicks();
     }
 
-    if (start + ms > SDL_GetTicks())
+    if (audio->startTicks + ms > SDL_GetTicks())
     {
-        SDL_Delay(start + ms - SDL_GetTicks());
+        SDL_Delay(audio->startTicks + ms - SDL_GetTicks());
         return true;
     }
 
@@ -170,6 +169,7 @@ void getAudioData(void *userdata, Uint8* stream, int len)
     void* audioBuffer = decoderPopAudio(decoder, &pts);
     if (audioBuffer != NULL)
     {
+        data->startTicks = SDL_GetTicks() - pts;
         SDL_memcpy(stream, audioBuffer, len);
         free(audioBuffer);
         decoderNotifyBuffer(decoder);
@@ -177,5 +177,10 @@ void getAudioData(void *userdata, Uint8* stream, int len)
     else if (decoderIsEnd(decoder))
     {
         data->end = true;
+    }
+    else
+    {
+        // 清除开始时的噪音
+        memset(stream, 0, len);
     }
 }

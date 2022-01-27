@@ -535,14 +535,17 @@ double decoderFps(DecoderData* data)
 int decoderRun(DecoderData* data)
 {
     AVPacket packet;
+    const int cacheMax = 30;
 
+    // 计算毫秒级的时间基数
     double videoTimebase = (double)(data->videoStream->time_base.num) / data->videoStream->time_base.den * 1000;
+    double audioTimebase = (double)(data->audioStream->time_base.num) / data->audioStream->time_base.den * 1000;
     while (1)
     {
         if (decoderIsEnd(data))
             break;
 
-        if (decoderCountVideo(data) > 30 && decoderCountAudio(data) > 30)
+        if (decoderCountVideo(data) > cacheMax && decoderCountAudio(data) > cacheMax)
         {
             decoderWaitBuffer(data);
             continue;
@@ -638,7 +641,7 @@ int decoderRun(DecoderData* data)
                 data->decodedAudioFrame->nb_samples
             );
 
-            decoderPushAudio(data, data->displayAudioBuffer, data->decodedAudioFrame->pts);
+            decoderPushAudio(data, data->displayAudioBuffer, data->decodedAudioFrame->pts * audioTimebase);
 
             // 释放 frame
             av_frame_unref(data->decodedAudioFrame);
