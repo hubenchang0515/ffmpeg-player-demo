@@ -75,7 +75,8 @@ int main(int argc, char* argv[])
 
     audioSpec.userdata = &audio;
     audioSpec.callback = getAudioData;
-    if (SDL_OpenAudio(&audioSpec, NULL) < 0)
+    SDL_AudioDeviceID audioDeviceId = SDL_OpenAudioDevice(NULL, 0, &audioSpec, NULL, 0);
+    if (audioDeviceId <= 0)
     {
         printf("cannot open audio device\n");
         audio.end = true;
@@ -85,7 +86,7 @@ int main(int argc, char* argv[])
     SDL_Thread* thread = SDL_CreateThread(threadDecode, "threadDecode", data);
 
     /* 开始播放音频 */
-    SDL_PauseAudio(0);
+    SDL_PauseAudioDevice(audioDeviceId, 0);
 
     SDL_Event event;
     bool running = true;
@@ -127,8 +128,8 @@ int main(int argc, char* argv[])
     }
 
     SDL_WaitThread(thread, NULL);       // 等待解码线程退出
-    SDL_PauseAudio(1);
-    SDL_CloseAudio();
+    SDL_PauseAudioDevice(audioDeviceId, 1);
+    SDL_CloseAudioDevice(audioDeviceId);
     
     deleteDecoder(data);
     SDL_DestroyTexture(texture);
