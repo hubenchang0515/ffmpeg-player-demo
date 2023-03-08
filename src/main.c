@@ -106,7 +106,7 @@ int main(int argc, char* argv[])
         }
 
         int64_t pts = 0;
-        void* videoBuffer = decoderPopVideo(data, &pts);
+        void* videoBuffer = decoderPopVideo(data, &pts); // TODO: 这里没有消息同步，一直读，导致CPU占用高
         if (videoBuffer != NULL)
         {
             decoderNotifyBuffer(data);
