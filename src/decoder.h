@@ -54,7 +54,7 @@ bool decoderInitAudioCodec(DecoderData* data);
 bool decoderInitSwScale(DecoderData* data, int width, int height, enum AVPixelFormat fmt);
 
 // 初始化软件重采样算法
-bool decoderInitSwResample(DecoderData* data, int64_t layout, enum AVSampleFormat fmt, int rate);
+bool decoderInitSwResample(DecoderData* data, const AVChannelLayout* layout, enum AVSampleFormat fmt, int rate);
 
 // 重采样后的一个通道的采样数
 int decoderSamples(DecoderData* data);

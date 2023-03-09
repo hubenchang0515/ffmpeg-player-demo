@@ -37,7 +37,7 @@ typedef struct DecoderData
     
     AVStream* videoStream;          // 视频流
     AVCodecParameters* videoParams; // 视频流参数
-    AVCodec* videoCodec;            // 视频解码器
+    const AVCodec* videoCodec;      // 视频解码器
     AVCodecContext* videoContext;   // 视频解码器上下文
     AVFrame* decodedVideoFrame;     // 解码后的视频帧
     int width;                      // 缩放后的宽度
@@ -50,10 +50,10 @@ typedef struct DecoderData
 
     AVStream* audioStream;              // 音频流
     AVCodecParameters* audioParams;     // 音频流参数
-    AVCodec* audioCodec;                // 音频解码器
+    const AVCodec* audioCodec;          // 音频解码器
     AVCodecContext* audioContext;       // 音频解码器上下文
     AVFrame* decodedAudioFrame;         // 解码后的音频帧
-    int64_t layout;                     // 重采样后的声道布局
+    const AVChannelLayout* layout;      // 重采样后的声道布局
     enum AVSampleFormat sampleFormat;   // 重采样后的音频采样格式
     int rate;                           // 重采样后的采样频率
     int samples;                        // 重采样后的一个通道的采样数
@@ -99,7 +99,7 @@ void resetDecoderData(DecoderData* data)
     data->audioCodec = NULL;
     data->audioContext = NULL;
     data->decodedAudioFrame = NULL;
-    data->layout = AV_CH_LAYOUT_NATIVE;
+    data->layout = NULL;
     data->sampleFormat = AV_SAMPLE_FMT_NONE;
     data->rate = 0;
     data->audioBufferSize = 0;
@@ -500,9 +500,9 @@ bool decoderInitSwScale(DecoderData* data, int width, int height, enum AVPixelFo
 }
 
 // 初始化软件重采样算法
-bool decoderInitSwResample(DecoderData* data, int64_t layout, enum AVSampleFormat fmt, int rate)
+bool decoderInitSwResample(DecoderData* data, const AVChannelLayout* layout, enum AVSampleFormat fmt, int rate)
 {
-    data->layout = layout;
+    // data->layout = layout;
     data->sampleFormat = fmt;
     data->rate = rate;
 
@@ -512,12 +512,12 @@ bool decoderInitSwResample(DecoderData* data, int64_t layout, enum AVSampleForma
 
     /* 初始化音频重采样 */
     data->swrContext = swr_alloc();
-    swr_alloc_set_opts(
-        data->swrContext,
-        data->layout,                       // 输出声道布局
+    swr_alloc_set_opts2(
+        &(data->swrContext),
+        layout,                             // 输出声道布局
         data->sampleFormat,                 // 输出音频数据格式
         data->rate,                         // 输出采样率
-        data->audioParams->channel_layout,  // 输入声道布局
+        &(data->audioParams->ch_layout),    // 输入声道布局
         data->audioParams->format,          // 输入格式
         data->audioParams->sample_rate,     // 输入采样频率
         0,
@@ -532,9 +532,9 @@ bool decoderInitSwResample(DecoderData* data, int64_t layout, enum AVSampleForma
     // 计算重采样输出缓存空间大小
     data->audioBufferSize = av_samples_get_buffer_size(
         NULL, 
-        av_get_channel_layout_nb_channels(data->layout),    // 输出声道数
-        data->samples,                                      // 一个通道的采样个数
-        data->sampleFormat,                                 // 数据格式
+        layout->nb_channels,   // 输出声道数
+        data->samples,              // 一个通道的采样个数
+        data->sampleFormat,         // 数据格式
         1
     );
 

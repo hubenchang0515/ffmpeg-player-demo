@@ -58,7 +58,9 @@ int main(int argc, char* argv[])
     decoderInitVideoCodec(data);
     decoderInitSwScale(data, WIDTH, HEIGHT, AV_PIX_FMT_YUV420P);
     decoderInitAudioCodec(data);
-    decoderInitSwResample(data, AV_CH_LAYOUT_STEREO, AV_SAMPLE_FMT_FLT, 44100);
+    AVChannelLayout layout = AV_CHANNEL_LAYOUT_STEREO;
+    decoderInitSwResample(data, &layout, AV_SAMPLE_FMT_FLT, 44100);
+    av_channel_layout_uninit(&layout);
 
     AudioUserData audio;
     audio.decoder = data;
