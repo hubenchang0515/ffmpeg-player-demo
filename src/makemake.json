@@ -9,8 +9,8 @@
             "cxxflags": "-O2 -W -Wall",
             "ar": "ar",
             "arflags": "rcs",
-            "libs": "-lavformat -lavcodec -lavutil -lswscale -lswresample -lSDL2 ",
-            "libs.windows": "-lavformat -lavcodec -lavutil -lswscale -lswresample -lmingw32 -lSDL2main -lSDL2 ",
+            "libs": "-lavformat -lavcodec -lavutil -lswscale -lswresample -lm -lz -lSDL2",
+            "libs.windows": "-lavformat -lavcodec -lavutil -lswscale -lswresample -lm -lz -lmingw32 -lSDL2main -lSDL2",
             "install": "",
             "cmd": "",
             "sources": [
