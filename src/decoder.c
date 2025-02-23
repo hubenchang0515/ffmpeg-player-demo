@@ -145,7 +145,6 @@ void deleteDecoder(DecoderData* data)
 
     if (data->audioContext != NULL)
     {
-        avcodec_close(data->audioContext);
         avcodec_free_context(&(data->audioContext));
     }
 
@@ -163,7 +162,6 @@ void deleteDecoder(DecoderData* data)
 
     if (data->videoContext != NULL)
     {
-        avcodec_close(data->videoContext);
         avcodec_free_context(&(data->videoContext));
     }
 
@@ -356,10 +354,13 @@ bool decoderInitVideoCodec(DecoderData* data)
     switch (data->videoParams->codec_id)
     {
     case AV_CODEC_ID_H264:
-        data->videoCodec = avcodec_find_decoder_by_name("h264_qsv");
+        data->videoCodec = avcodec_find_decoder_by_name("h264_cuvid");
         break;
     case AV_CODEC_ID_HEVC:
-        data->videoCodec = avcodec_find_decoder_by_name("hevc_qsv");
+        data->videoCodec = avcodec_find_decoder_by_name("h264_cuvid");
+        break;
+    case AV_CODEC_ID_AV1:
+        data->videoCodec = avcodec_find_decoder_by_name("av1_cuvid");
         break;
     default:
         break; // 清警告
@@ -470,21 +471,24 @@ bool decoderInitSwScale(DecoderData* data, int width, int height, enum AVPixelFo
     AVCodecParameters* params = avcodec_parameters_alloc(); // 使用 GPU 解码会导致像素格式改变
     avcodec_parameters_from_context(params, data->videoContext);
 
+    // 新版本好像不存在这个现象了，大概是作为 BUG 修复了
     // 使用 qsv 解码器时，params->format 得到的是使用软件解码器时的格式
     // 但实际上解码器返回的是 NV12 格式，通过 data->videoCodec->pix_fmts 来获得该格式
     //      NV12 和 YUV422 格式一致，但是排列不同
     //      YUV422 按像素排列，例如: Y0 U0 Y1 V1 Y2 U2 Y3 V3
     //      NV12 按通道排列，例如: Y0 Y1 Y2 Y3 U0 V1 U2 V3
-    enum AVPixelFormat ifmt = data->videoCodec->pix_fmts != NULL ? *(data->videoCodec->pix_fmts) : params->format; // 使用硬件解码器时
+    const enum AVPixelFormat* pix_fmts = NULL;
+    int n = 0;
+    avcodec_get_supported_config(data->videoContext, data->videoCodec, AV_CODEC_CONFIG_PIX_FORMAT, 0, (const void**)&pix_fmts, &n);
     
     data->swsContext = sws_getContext(
-        data->videoParams->width,       // 缩放之前的尺寸
+        data->videoParams->width,                   // 缩放之前的尺寸
         data->videoParams->height,
-        ifmt,                           // 缩放之前像素格式
-        data->width,                    // 缩放后的尺寸
+        pix_fmts ? pix_fmts[0] : params->format,    // 缩放之前像素格式
+        data->width,                                // 缩放后的尺寸
         data->height,
-        data->pixFormat,                // 缩放后的像素格式
-        SWS_BICUBIC,                    // 缩放算法:双三次方插值
+        data->pixFormat,                            // 缩放后的像素格式
+        SWS_BICUBIC,                                // 缩放算法:双三次方插值
         NULL,
         NULL,
         NULL
